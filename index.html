@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Procesador de Facturas XML</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    body {font-family: 'Inter', sans-serif; color:#1A202C; background-color:#f8fafc;}
+    .card {background:white; border-radius:16px; box-shadow:0 2px 8px rgba(0,0,0,.05); padding:24px; margin-bottom:2rem;}
+    .btn-primary {background:#0077C9; color:white; font-weight:600; padding:10px 18px; border-radius:10px; transition:.3s;}
+    .btn-primary:hover {background:#005fa3; transform:translateY(-2px);}
+    table{width:100%; border-collapse:collapse; background:white; border-radius:12px; overflow:hidden;}
+    thead{background:#0077C9; color:white;}
+    th,td{padding:12px; text-align:left; border-bottom:1px solid #e5e7eb;}
+    tbody tr:hover{background:#f1f5f9;}
+  </style>
+</head>
+<body class="bg-gray-50">
+  <main class="container mx-auto px-6 py-10">
+    <h1 class="text-3xl font-bold text-gray-900 mb-6 text-center">Procesador de Facturas XML</h1>
+
+    <div class="card">
+      <h2 class="text-xl font-semibold mb-4">1) Cargar factura XML</h2>
+      <input type="file" id="inputFile" accept=".xml" class="w-full border border-gray-300 rounded-lg p-2" />
+      <p id="fileInfo" class="text-gray-500 text-sm mt-2">Ningún archivo seleccionado</p>
+      <div class="flex gap-3 mt-4">
+        <button id="btnSubir" class="btn-primary" disabled>Subir y procesar</button>
+        <button id="btnLimpiar" class="btn-primary bg-gray-200 text-gray-800 hover:bg-gray-300">Limpiar</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2 class="text-xl font-semibold mb-4">2) Facturas procesadas</h2>
+      <input type="search" id="q" placeholder="Buscar por UUID o Emisor" class="w-full border border-gray-300 rounded-lg p-2 mb-3" />
+      <div class="overflow-auto">
+        <table>
+          <thead>
+            <tr>
+              <th>Serie</th>
+              <th>Folio</th>
+              <th>RFC Emisor</th>
+              <th>Nombre Emisor</th>
+              <th>UUID</th>
+              <th>Nombre del Receptor</th>
+              <th>RFC Receptor</th>
+              <th>Fecha de Emisión</th>
+              <th>Total</th>
+              <th>Moneda</th>
+              <th>Concepto</th>
+              <th>Fecha recepción XML</th>
+              <th>Método de Pago</th>
+              <th>Nombre Archivo</th>
+            </tr>
+          </thead>
+          <tbody id="tbody">
+            <tr><td colspan="14" class="text-gray-500 text-center">Cargando…</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <button id="btnExportar" class="btn-primary mt-4">Exportar CSV</button>
+    </div>
+  </main>
+
+  <script>
+    const $ = (s)=>document.querySelector(s);
+    const tbody = $('#tbody'); const btnSubir = $('#btnSubir'); const btnLimpiar = $('#btnLimpiar');
+    const inputFile = $('#inputFile'); const fileInfo = $('#fileInfo'); const q = $('#q');
+    let rows = [];
+
+    function sanitizeText(str) {
+      return str.replace(/[&<>"]'/g, function(tag) {
+        const chars = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+        return chars[tag] || tag;
+      });
+    }
+
+    inputFile.addEventListener('change', (e)=>{
+      const f = e.target.files?.[0];
+      if(!f){fileInfo.textContent='Ningún archivo seleccionado'; btnSubir.disabled=true; return;}
+      if(!f.name.toLowerCase().endsWith('.xml') || (f.type !== 'text/xml' && f.type !== 'application/xml')){
+        alert('Archivo inválido. Solo se permiten archivos XML válidos.');
+        inputFile.value=''; btnSubir.disabled=true; return;
+      }
+      fileInfo.textContent=`${sanitizeText(f.name)} · ${(f.size/1024).toFixed(1)} KB`;
+      btnSubir.disabled=false;
+    });
+
+    btnLimpiar.addEventListener('click', ()=>{
+      inputFile.value=''; btnSubir.disabled=true; fileInfo.textContent='Ningún archivo seleccionado';
+    });
+
+    btnSubir.addEventListener('click', async ()=>{
+      const file = inputFile.files[0]; if(!file) return;
+      if(!file.name.toLowerCase().endsWith('.xml')) {alert('Solo se aceptan archivos XML.'); return;}
+      try {
+        const content = await file.text();
+        const parser = new DOMParser();
+        const xml = parser.parseFromString(content, 'application/xml');
+        if(xml.getElementsByTagName('parsererror').length) throw new Error('Archivo XML mal formado.');
+
+        const serie = sanitizeText(xml.querySelector('Comprobante')?.getAttribute('Serie') || '');
+        const folio = sanitizeText(xml.querySelector('Comprobante')?.getAttribute('Folio') || '');
+        const rfcEmisor = sanitizeText(xml.querySelector('Emisor')?.getAttribute('Rfc') || '');
+        const nombreEmisor = sanitizeText(xml.querySelector('Emisor')?.getAttribute('Nombre') || '');
+        const uuid = sanitizeText(xml.querySelector('TimbreFiscalDigital')?.getAttribute('UUID') || '');
+        const nombreReceptor = sanitizeText(xml.querySelector('Receptor')?.getAttribute('Nombre') || '');
+        const rfcReceptor = sanitizeText(xml.querySelector('Receptor')?.getAttribute('Rfc') || '');
+        const fechaEmision = sanitizeText(xml.querySelector('Comprobante')?.getAttribute('Fecha') || '');
+        const total = sanitizeText(xml.querySelector('Comprobante')?.getAttribute('Total') || '');
+        const moneda = sanitizeText(xml.querySelector('Comprobante')?.getAttribute('Moneda') || '');
+        const concepto = sanitizeText(xml.querySelector('Concepto')?.getAttribute('Descripcion') || '');
+        const fechaRecepcion = new Date().toLocaleString();
+        const metodoPago = sanitizeText(xml.querySelector('Comprobante')?.getAttribute('MetodoPago') || '');
+        const nombreArchivo = sanitizeText(file.name);
+
+        const record = {serie, folio, rfcEmisor, nombreEmisor, uuid, nombreReceptor, rfcReceptor, fechaEmision, total, moneda, concepto, fechaRecepcion, metodoPago, nombreArchivo};
+        rows.unshift(record);
+        render(rows);
+        alert('Factura procesada correctamente');
+        btnLimpiar.click();
+      } catch (error) {
+        alert('Error al procesar el archivo: ' + error.message);
+      }
+    });
+
+    q.addEventListener('input', ()=>{
+      const t = q.value.trim().toLowerCase();
+      render(rows.filter(r=>r.uuid.toLowerCase().includes(t)||r.nombreEmisor.toLowerCase().includes(t)||r.nombreArchivo.toLowerCase().includes(t)));
+    });
+
+    function render(data){
+      if(!data.length){tbody.innerHTML='<tr><td colspan="14" class="text-gray-500 text-center">Sin registros</td></tr>'; return;}
+      tbody.innerHTML = data.map(r=>`<tr>
+        <td>${r.serie}</td><td>${r.folio}</td><td>${r.rfcEmisor}</td><td>${r.nombreEmisor}</td>
+        <td>${r.uuid}</td><td>${r.nombreReceptor}</td><td>${r.rfcReceptor}</td>
+        <td>${r.fechaEmision}</td><td>${r.total}</td><td>${r.moneda}</td>
+        <td>${r.concepto}</td><td>${r.fechaRecepcion}</td><td>${r.metodoPago}</td><td>${r.nombreArchivo}</td>
+      </tr>`).join('');
+    }
+
+    document.addEventListener('DOMContentLoaded', ()=>render(rows));
+  </script>
+</body>
+</html>
